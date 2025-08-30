@@ -1,0 +1,17 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# Data & ML
+pandas>=2.2.0
+numpy>=1.26.0
+scikit-learn>=1.5.0
+joblib>=1.3.0
+
+# Optional visualization / data exploration
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.20.0
+
+# Frontend (if using Streamlit UI)
+streamlit>=1.36.0
+requests>=2.31.0
