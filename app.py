@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import joblib
 import pandas as pd
-from typing import List
+
 
 # Load the model
 model = joblib.load("model.pkl")
@@ -48,3 +48,4 @@ def predict(features: List[InsuranceFeatures]):
     df = pd.DataFrame([f.dict() for f in features])
     preds = model.predict(df)
     return {"predictions": preds.tolist()}
+
