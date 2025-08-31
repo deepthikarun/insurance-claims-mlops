@@ -34,37 +34,9 @@ jobs:
           echo "⚡ Running tests..."
           # pytest tests/   # uncomment if you add tests
 
-      # 5. Train & log model with MLflow
-      - name: Train and log model with MLflow
-        run: |
-          python - <<'EOF'
-          import mlflow, mlflow.sklearn
-          import pandas as pd
-          from sklearn.ensemble import RandomForestClassifier
-          from sklearn.model_selection import train_test_split
-          import joblib
-
-          # Load data
-          df = pd.read_csv("fraud_oracle.csv")
-          X = df.drop(columns=["FraudFound_P"])
-          y = df["FraudFound_P"]
-
-          X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
-
-          clf = RandomForestClassifier(class_weight="balanced", random_state=42)
-          clf.fit(X_train, y_train)
-
-          # MLflow tracking
-          mlflow.set_experiment("fraud-detection")
-          with mlflow.start_run():
-              mlflow.sklearn.log_model(clf, "model")
-              mlflow.log_params({"n_estimators": clf.n_estimators, "max_depth": clf.max_depth})
-              mlflow.log_metric("train_score", clf.score(X_train, y_train))
-              mlflow.log_metric("test_score", clf.score(X_test, y_test))
-
-          # Save model locally for API
-          joblib.dump(clf, "model.pkl")
-          EOF
+- name: Train & log model with MLflow
+  run: |
+    python train.py
 
       # 6. Log in to GitHub Container Registry
       - name: Log in to GitHub Container Registry
