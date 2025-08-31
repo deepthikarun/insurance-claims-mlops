@@ -1,17 +1,17 @@
-name: Train, Build & Deploy Fraud API
+name: CI/CD with MLflow and GHCR
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
-    branches: ["main"]
+    branches: [ "main" ]
 
 jobs:
-  build-train-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repo
+      # 1. Checkout repository
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -22,7 +22,7 @@ jobs:
           python-version: "3.10"
 
       # 3. Cache pip
-      - name: Cache pip dependencies
+      - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
@@ -37,24 +37,19 @@ jobs:
           pip install -r requirements.txt
           pip install mlflow
 
-      # 5. Train model & log to MLflow
-      - name: Train model
+      # 5. Train and log model with MLflow
+      - name: Train & log model
         run: |
           python train.py
 
-      # 6. Verify model.pkl exists
-      - name: Check model.pkl exists
-        run: |
-          ls -lh model.pkl
-
-      # 7. Upload MLflow runs (so you can download from Actions UI)
-      - name: Upload MLflow runs
-        uses: actions/upload-artifact@v3
+      # 6. Upload trained model artifact
+      - name: Upload model.pkl artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: mlruns
-          path: mlruns/
+          name: model
+          path: model.pkl
 
-      # 8. Log in to GitHub Container Registry
+      # 7. Log in to GitHub Container Registry
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -62,12 +57,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      # 9. Build Docker image
+      # 8. Build Docker image
       - name: Build Docker image
         run: |
-          docker build -t ghcr.io/${{ github.repository }}:latest .
+          docker build -t ghcr.io/${{ github.repository }}/fraud-api:latest .
 
-      # 10. Push Docker image
+      # 9. Push Docker image
       - name: Push Docker image
         run: |
-          docker push ghcr.io/${{ github.repository }}:latest
+          docker push ghcr.io/${{ github.repository }}/fraud-api:latest
