@@ -42,12 +42,19 @@ jobs:
         run: |
           python train.py
 
-      # 6. Verify model file
+      # 6. Verify model.pkl exists
       - name: Check model.pkl exists
         run: |
           ls -lh model.pkl
 
-      # 7. Log in to GitHub Container Registry
+      # 7. Upload MLflow runs (so you can download from Actions UI)
+      - name: Upload MLflow runs
+        uses: actions/upload-artifact@v3
+        with:
+          name: mlruns
+          path: mlruns/
+
+      # 8. Log in to GitHub Container Registry
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -55,12 +62,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      # 8. Build Docker image (tag matches repo name)
+      # 9. Build Docker image
       - name: Build Docker image
         run: |
           docker build -t ghcr.io/${{ github.repository }}:latest .
 
-      # 9. Push Docker image
+      # 10. Push Docker image
       - name: Push Docker image
         run: |
           docker push ghcr.io/${{ github.repository }}:latest
