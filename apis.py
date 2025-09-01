@@ -9,7 +9,7 @@ CSV_PATH = "fraud_oracle.csv"
 MODEL_PATH = "model.pkl"
 TARGET_COL = "FraudFound_P"
 
-# ✅ Swagger explicitly enabled
+#  Swagger explicitly enabled
 app = FastAPI(
     title="Insurance Fraud Model API",
     description="Trains from fraud_oracle.csv on startup and serves predictions.",
@@ -250,3 +250,4 @@ def predict_numeric(rows: List[NumericRow]):
     except Exception:
         probs = None
     return {"predictions": preds.tolist(), "probabilities_for_class_1": probs}
+
