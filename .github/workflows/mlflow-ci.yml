@@ -1,4 +1,4 @@
-name: CI/CD with MLflow and GHCR
+name: CI/CD with GHCR
 
 on:
   push:
