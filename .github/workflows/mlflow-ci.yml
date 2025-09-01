@@ -1,4 +1,4 @@
-name: CI/CD with GHCR
+name: CI/CD with GHCR and Azure
 
 on:
   push:
