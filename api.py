@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 import os, joblib, pandas as pd
 
 from preprocess import preprocess_raw_df  ## shared
-# Keep these for consistent filenames/columns
+## Keep these for consistent filenames/columns
 CSV_PATH = os.getenv("CSV_PATH", "fraud_oracle.csv")
 MODEL_PATH = os.getenv("MODEL_PATH", "model.pkl")
 TARGET_COL = os.getenv("TARGET_COL", "FraudFound_P")
@@ -102,4 +102,5 @@ def predict_numeric(rows: List[NumericRow]):
     except Exception:
         probs = None
     return {"predictions": preds.tolist(), "probabilities_for_class_1": probs}
+
 
