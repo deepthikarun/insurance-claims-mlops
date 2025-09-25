@@ -1,68 +1,145 @@
-name: CI/CD with GHCR and Azure
+name: Build & Deploy FastAPI  (Container App ) 
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+
+permissions:
+  contents: read
+  packages: write   # required to push to GHCR with GITHUB_TOKEN
+
+env:
+  AZURE_LOCATION: southindia
+  AZURE_GROUP_NAME: fraud-detection
+  AZURE_ENV_NAME: fraud-detection
+  AZURE_CONTAINER_APP_NAME: fraud-detection-app
+  REGISTRY_SERVER: ghcr.io
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Checkout repository
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Setup Python
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      # 3. Cache pip
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      # 4. Install dependencies
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install mlflow
-
-      # 5. Train and log model with MLflow
-      - name: Train & log model
-        run: |
-          python train.py
-
-      # 6. Upload trained model artifact
-      - name: Upload model.pkl artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: model
-          path: model.pkl
-
-      # 7. Log in to GitHub Container Registry
-      - name: Log in to GitHub Container Registry
+      - name: Login to GHCR (using GITHUB_TOKEN)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      # 8. Build Docker image
-      - name: Build Docker image
-        run: |
-          docker build -t ghcr.io/${{ github.repository }}/fraud-api:latest .
+      - name: Lowercase owner/repo
+        run: echo "REPO=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
-      # 9. Push Docker image
-      - name: Push Docker image
+      - name: Build & Push image to GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO }}:${{ github.sha }}
+            ghcr.io/${{ env.REPO }}:latest
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      # Use creds JSON ONLY (no client-id/tenant-id/subscription-id here)
+      - name: Azure Login (Service Principal creds JSON)
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Ensure subscription context
+        shell: bash
         run: |
-          docker push ghcr.io/${{ github.repository }}/fraud-api:latest
+          set -e
+          SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          if [ -z "$SUB" ]; then
+            echo "::error:: AZURE_SUBSCRIPTION_ID secret is missing."
+            exit 1
+          fi
+          az account set --subscription "$SUB"
+          echo "Current subscription:"
+          az account show --query "{name:name, id:id, state:state}" -o tsv
+          STATE=$(az account show --query "state" -o tsv)
+          if [ "$STATE" != "Enabled" ]; then
+            echo "::error:: Subscription state is '$STATE' (must be Enabled)."
+            exit 1
+          fi
+
+      - name: Lowercase owner/repo
+        run: echo "REPO=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
+      - name: Create/Update Azure Container App (Central India, private GHCR)
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            set -e
+
+            RG="${{ env.AZURE_GROUP_NAME }}"
+            LOC="${{ env.AZURE_LOCATION }}"
+            ENV="${{ env.AZURE_ENV_NAME }}"
+            APP="${{ env.AZURE_CONTAINER_APP_NAME }}"
+
+            IMAGE="ghcr.io/${{ env.REPO }}:${{ github.sha }}"
+            REGISTRY_SERVER="${{ env.REGISTRY_SERVER }}"
+            REGISTRY_USER="${{ github.actor }}"
+            REGISTRY_PASS="${{ secrets.GHCR_PAT }}"   # REQUIRED for private GHCR
+
+            if [ -z "$REGISTRY_PASS" ]; then
+              echo "::error:: PAT secret is missing. For private GHCR images, create a Classic PAT with 'read:packages' and add it as repo secret 'PAT' (SSO-enable if your org requires it)."
+              exit 1
+            fi
+
+            az config set extension.use_dynamic_install=yes_without_prompt
+
+            echo " Ensure Resource Group exists"
+            az group create -n "$RG" -l "$LOC" 1>/dev/null
+
+            echo " Check if Container Apps Environment exists"
+            if az containerapp env show -n "$ENV" -g "$RG" 1>/dev/null 2>&1; then
+              echo " Environment '$ENV' already exists in $LOC"
+            else
+              echo " Creating Environment '$ENV' in $LOC..."
+              az containerapp env create -n "$ENV" -g "$RG" --location "$LOC"
+            fi
+
+            echo " Set GHCR registry credentials (for private image)"
+            # This creates/updates the registry secret on the app (no-op if app doesn't exist yet)
+            az containerapp registry set \
+              -n "$APP" -g "$RG" \
+              --server "$REGISTRY_SERVER" \
+              --username "$REGISTRY_USER" \
+              --password "$REGISTRY_PASS" || true
+
+            echo " Check if Container App exists"
+            if az containerapp show -n "$APP" -g "$RG" 1>/dev/null 2>&1; then
+              echo " Updating Container App..."
+              az containerapp update \
+                -n "$APP" -g "$RG" \
+                --image "$IMAGE" \
+                --cpu 2 --memory 4Gi \
+                --set-env-vars API_URL=/api/predict-raw
+            else
+              echo " Creating Container App..."
+              az containerapp create \
+                -n "$APP" -g "$RG" \
+                --environment "$ENV" \
+                --ingress external \
+                --target-port 80 \
+                --cpu 2 --memory 4Gi \
+                --image "$IMAGE" \
+                --registry-server "$REGISTRY_SERVER" \
+                --registry-username "$REGISTRY_USER" \
+                --registry-password "$REGISTRY_PASS" \
+                --env-vars API_URL=/api/predict-raw
+            fi
+
+            echo " Public FQDN:"
+            az containerapp show -n "$APP" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv
